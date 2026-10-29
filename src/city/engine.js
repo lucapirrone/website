@@ -1,6 +1,7 @@
 // @ts-nocheck
 /* Motore della città 3D (dal concept, Three.js r128). Contenuti da `data`; la pagina fornisce il markup dell'interfaccia. */
 import * as THREE from "three";
+import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { STATUS, MESI, sinceText, ghText } from "@/content/format";
 import { BRAND } from "@/content/brand";
 
@@ -1453,7 +1454,7 @@ function updateCamera() {
 }
 const SHADOW_C = new THREE.Vector3(1, 0, 4);
 camera.near = 0.4;
-function step(d) { if (INS) return goIn(INS.goal + d); go(cam.goal + d); }
+function step(d) { if (INS) return goIn(Math.round(INS.goal) + d); go(cam.goal + d); }
 function go(i) {
   if (INS) return;
   const n = STOPS.length; i = Math.max(0, Math.min(n - 1, i));
@@ -1475,12 +1476,13 @@ function boardPress(x, y) {
 function pickAt(x, y) { const r = canvas.getBoundingClientRect(); ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects(W.pick, false)[0]; return h ? h.object.userData.iid : null; }
 let drag = null, wheelAcc = 0, wheelLock = 0;
 canvas.addEventListener("contextmenu", e => e.preventDefault());
-canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, moved: 0, az: cam.lookG.az, el: cam.lookG.el, spin: cam.spin, touch: e.pointerType !== "mouse" }; cam.idle = false; });
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, moved: 0, az: cam.lookG.az, el: cam.lookG.el, spin: cam.spin, touch: e.pointerType !== "mouse", g0: INS ? Math.round(INS.goal) : null }; cam.idle = false; });
 canvas.addEventListener("pointermove", e => {
   if (drag) {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved = Math.max(drag.moved, Math.abs(dx) + Math.abs(dy));
-    if (cam.goal === 0) cam.spin = drag.spin - dx * 0.005;
-    else if (!(INS && drag.touch)) { cam.lookG.az = Math.max(-0.9, Math.min(0.9, drag.az - dx * 0.004)); if (!drag.touch) cam.lookG.el = Math.max(-0.25, Math.min(0.45, drag.el + dy * 0.003)); }
+    if (INS) { if (drag.g0 != null) INS.goal = Math.max(-0.15, Math.min(INS.stops.length - 0.85, drag.g0 - dx / innerWidth * 1.4)); }
+    else if (cam.goal === 0) cam.spin = drag.spin - dx * 0.005;
+    else { cam.lookG.az = Math.max(-0.9, Math.min(0.9, drag.az - dx * 0.004)); if (!drag.touch) cam.lookG.el = Math.max(-0.25, Math.min(0.45, drag.el + dy * 0.003)); }
     return;
   }
   if (e.pointerType === "mouse" && !INS) { const id = pickAt(e.clientX, e.clientY); if (id !== W.hover) { W.hover = id; canvas.style.cursor = id ? "pointer" : "grab"; } }
@@ -1489,7 +1491,7 @@ canvas.addEventListener("pointerup", e => {
   if (drag) {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (drag.moved < 6 && !INS && !boardPress(e.clientX, e.clientY)) select(pickAt(e.clientX, e.clientY));
-    else if (INS && drag.touch && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) step(dx < 0 ? 1 : -1);
+    else if (INS && drag.g0 != null) goIn(drag.g0 + (dx < -40 ? 1 : dx > 40 ? -1 : 0));
     else if (!INS && drag.touch && Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.2) { cam.lookG.az = drag.az; step(dy < 0 ? 1 : -1); }
   }
   drag = null;
@@ -1497,6 +1499,7 @@ canvas.addEventListener("pointerup", e => {
 canvas.addEventListener("pointercancel", () => { drag = null; });
 canvas.addEventListener("wheel", e => {
   e.preventDefault(); const now = performance.now();
+  if (INS) return scrubIn((Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * (e.deltaMode === 1 ? 0.05 : 0.0022));
   if (now < wheelLock) { wheelAcc = 0; return; }
   wheelAcc += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   if (Math.abs(wheelAcc) > 40) { step(Math.sign(wheelAcc)); wheelAcc = 0; wheelLock = now + 1000; }
@@ -1577,11 +1580,10 @@ dataEl.addEventListener("click", e => { if (e.target === dataEl) dataEl.hidden =
 
 
 /* ============================================================
-   INTERNI — "Entra": un open space riusabile, riempito dai dati del progetto
+   INTERNI — "Entra": una galleria al buio, un percorso laterale nella storia del progetto
    ============================================================ */
-const iScene = new THREE.Scene(); iScene.background = new THREE.Color("#ece9e3");
-{ iScene.add(new THREE.HemisphereLight("#ffffff", "#c9c0b2", 1.1)); const d = new THREE.DirectionalLight("#fff4e2", 0.9); d.position.set(5, 12, 8); iScene.add(d); }
-const ROOM = { w: 24, d: 18, h: 4.6 }, ROOMS = {};
+const iScene = new THREE.Scene();
+const ROOMS = {}, SP = 18;
 const FD = FONT_D, FM = FONT_M;
 function rrPath(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
 function wrapText(g, text, x, y, maxW, lh) {
@@ -1590,103 +1592,281 @@ function wrapText(g, text, x, y, maxW, lh) {
 }
 const fmtNum = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const fmtDate = d => { const [y, m] = d.split("-").map(Number); return MESI[m - 1].slice(0, 3).toUpperCase() + " " + y; };
-/* pannello disegnato su canvas (metri → pixel) e appeso a una parete */
-function wallPanel(parent, w, h, x, y, z, ry, draw, ppm = 420) {
+const sat = x => Math.max(0, Math.min(1, x)), smooth = x => { x = sat(x); return x * x * (3 - 2 * x); };
+const phoneView = () => innerWidth < innerHeight;
+/* il colore del progetto, schiarito quanto basta per brillare al buio */
+function accentOf(brand) { const c = new THREE.Color(brand), h = {}; c.getHSL(h); return new THREE.Color().setHSL(h.h, Math.max(h.s, 0.6), Math.max(h.l, 0.62)); }
+
+/* bagliore: sprite additivo con gradiente radiale */
+let GLOW_T = null;
+function glowTex() {
+  if (GLOW_T) return GLOW_T; const [c, g] = cnv(128, 128), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.22, "rgba(255,255,255,.42)"); r.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  GLOW_T = canvasTex(c); GLOW_T.wrapS = GLOW_T.wrapT = THREE.ClampToEdgeWrapping; return GLOW_T;
+}
+function glow(parent, color, s, x, y, z, op = 1) {
+  const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: op, toneMapped: false, fog: false }));
+  m.scale.set(s, s, 1); m.position.set(x, y, z); parent.add(m); return m;
+}
+const addMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+/* testo disegnato su canvas, in metri (256 px per metro) */
+function textPlane(parent, w, h, draw, ppm = 256) {
   const CW = Math.min(2048, Math.round(w * ppm)), CH = Math.min(2048, Math.round(h * ppm)), [c, g] = cnv(CW, CH), t = canvasTex(c);
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   const run = () => { g.clearRect(0, 0, CW, CH); g.textBaseline = "alphabetic"; g.textAlign = "left"; draw(g, CW, CH); t.needsUpdate = true; };
   run(); if (document.fonts) document.fonts.ready.then(run);
-  const m = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: "#ffffff", emissiveIntensity: 0.28, roughness: 0.75, transparent: true });
-  const pl = mesh(new THREE.PlaneGeometry(w, h), m, parent, x, y, z, { cast: false }); pl.rotation.y = ry; return { pl, run };
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false }));
+  parent.add(m); m.userData.run = run; return m;
 }
-function plant(g, x, z) { cyl(0.32, 0.26, 0.62, std("#e9e5dd", { roughness: 0.6 }), g, x, 0, z, 16); mesh(new THREE.IcosahedronGeometry(0.62, 1), TREE_MATS[1], g, x, 1.2, z).scale.set(1, 1.25, 1); }
+/* lettere del nome in rilievo, una mesh per lettera per farle salire una alla volta */
+function titleLetters(text, size, faceM, sideM) {
+  const g = new THREE.Group(), G = FONT.data.glyphs, k = size / FONT.data.resolution; let x = 0; const out = [];
+  [...text].forEach(ch => {
+    const gl = G[ch]; if (!gl) return;
+    if (ch !== " ") {
+      const geo = new THREE.TextGeometry(ch, { font: FONT, size, height: size * 0.32, curveSegments: 6, bevelEnabled: true, bevelThickness: size * 0.03, bevelSize: size * 0.018, bevelSegments: 2 });
+      const m = new THREE.Mesh(geo, [faceM, sideM]); m.position.x = x; g.add(m); out.push(m);
+    }
+    x += gl.ha * k + size * 0.1;
+  });
+  g.children.forEach(m => m.position.x -= x / 2); return { g, letters: out, width: x };
+}
 
 function buildRoom(p) {
-  const g = new THREE.Group(), R = ROOM, I = p.inside || {}, brand = BRAND[p.id] || "#1e2024", stops = [], S = sinceText(p); iScene.add(g);
-  const wall = std("#f4f2ee", { roughness: 0.92 }), brandM = std(brand, { roughness: 0.7 }), white = std("#ffffff", { roughness: 0.5 }), dark = std("#24272d", { roughness: 0.45, metalness: 0.2 });
-  const floor = mesh(new THREE.PlaneGeometry(R.w, R.d), std("#cdc3b4", { roughness: 0.65, map: noiseTex("#cdc3b4", 7, 128, [6, 4]) }), g, 0, 0, 0, { cast: false }); floor.rotation.x = -Math.PI / 2;
-  mesh(new THREE.PlaneGeometry(R.w, R.d), std("#fbfaf8"), g, 0, R.h, 0, { cast: false }).rotation.x = Math.PI / 2;
-  box(R.w, R.h, 0.2, wall, g, 0, 0, -R.d / 2 - 0.1); box(R.w, R.h, 0.2, wall, g, 0, 0, R.d / 2 + 0.1);
-  box(0.2, R.h, R.d, wall, g, -R.w / 2 - 0.1, 0, 0); box(0.2, R.h, R.d, wall, g, R.w / 2 + 0.1, 0, 0);
-  /* parete della reception nel colore del progetto, zoccolino colorato tutto intorno */
-  box(6.6, R.h, 0.04, brandM, g, -7, 0, -R.d / 2 + 0.02);
-  box(R.w, 0.12, 0.04, brandM, g, 0, 0, R.d / 2 - 0.02); box(0.04, 0.12, R.d, brandM, g, -R.w / 2 + 0.02, 0, 0); box(0.04, 0.12, R.d, brandM, g, R.w / 2 - 0.02, 0, 0);
-  const light = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#fff7ea", emissiveIntensity: 1.2 });
-  for (let i = -2; i <= 2; i++) for (let j = -1; j <= 1; j++) box(2.4, 0.05, 0.45, light, g, i * 4.6, R.h - 0.05, j * 5, { cast: false });
+  const g = new THREE.Group(), I = p.inside || {}, brand = BRAND[p.id] || "#1e2024", acc = accentOf(brand), S = sinceText(p), phone = phoneView();
+  const bg = new THREE.Color(brand).lerp(new THREE.Color("#04050a"), 0.9), accS = "#" + acc.getHexString();
+  const ex = [], anims = [];
+  /* ---- spazio: buio, nebbia, pavimento lucido che riflette tutto ---- */
+  const env = new THREE.Group(); g.add(env);
+  env.add(new THREE.HemisphereLight("#ffffff", bg, 0.35));
+  const key = new THREE.DirectionalLight("#ffffff", 0.7); key.position.set(4, 10, 12); env.add(key);
+  const L0 = -14, L1 = 4 * SP + 14;
+  if (!phone) {
+    const rf = new Reflector(new THREE.PlaneGeometry(L1 - L0 + 80, 160), { clipBias: 0.003, textureWidth: Math.min(1600, innerWidth), textureHeight: Math.min(1000, innerHeight), color: 0x8a8f99 });
+    rf.rotation.x = -Math.PI / 2; rf.position.set((L0 + L1) / 2, -0.002, 0); env.add(rf);
+  }
+  {
+    const [c, fg] = cnv(256, 256); fg.fillStyle = `rgba(${bg.r * 255 | 0},${bg.g * 255 | 0},${bg.b * 255 | 0},1)`; fg.fillRect(0, 0, 256, 256);
+    fg.fillStyle = `rgba(${acc.r * 255 | 0},${acc.g * 255 | 0},${acc.b * 255 | 0},.15)`; fg.fillRect(0, 0, 256, 2); fg.fillRect(0, 0, 2, 256);
+    const t = canvasTex(c); t.repeat.set((L1 - L0 + 80) / 2, 80);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(L1 - L0 + 80, 160), new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: !phone ? 0.8 : 1, depthWrite: false }));
+    fl.rotation.x = -Math.PI / 2; fl.position.set((L0 + L1) / 2, 0, 0); env.add(fl);
+  }
+  /* la linea di luce sul pavimento: il percorso */
+  const rail = new THREE.Mesh(new THREE.PlaneGeometry(L1 - L0, 0.05), addMat(acc, 0.9)); rail.rotation.x = -Math.PI / 2; rail.position.set((L0 + L1) / 2, 0.01, 3.2); env.add(rail);
+  /* pulviscolo nella luce */
+  const DN = phone ? 260 : 520, dpos = new Float32Array(DN * 3), dsp = [];
+  for (let i = 0; i < DN; i++) { dpos.set([L0 + Math.random() * (L1 - L0), Math.random() * 9, -10 + Math.random() * 16], i * 3); dsp.push(0.05 + Math.random() * 0.15); }
+  const dGeo = new THREE.BufferGeometry(); dGeo.setAttribute("position", new THREE.BufferAttribute(dpos, 3));
+  env.add(new THREE.Points(dGeo, new THREE.PointsMaterial({ color: acc.clone().lerp(new THREE.Color("#ffffff"), 0.5), size: 0.05, map: glowTex(), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+  anims.push((t, dt) => { for (let i = 0; i < DN; i++) { dpos[i * 3 + 1] += dsp[i] * dt; if (dpos[i * 3 + 1] > 9) dpos[i * 3 + 1] = 0; } dGeo.attributes.position.needsUpdate = true; });
 
-  /* 1. reception: logo e cos'è il progetto */
-  logoFront(p, g, -7, 3.2, -R.d / 2 + 0.06, 4.4, 1.3);
-  wallPanel(g, 4.8, 1.5, -7, 1.45, -R.d / 2 + 0.06, 0, (c, W_, H) => {
-    c.fillStyle = "#ffffff"; rrPath(c, 0, 0, W_, H, 40); c.fill();
-    c.fillStyle = "#6b6f76"; c.font = `600 34px ${FM}`; c.fillText(`${p.tag} · ${p.role}${S ? " · dal " + S.date : ""}`.toUpperCase(), 70, 100);
-    c.fillStyle = "#1e2024"; c.font = `600 68px ${FD}`; wrapText(c, p.text, 70, 205, W_ - 140, 84);
-  });
-  plant(g, -3.5, -R.d / 2 + 0.9); plant(g, 3.5, -R.d / 2 + 0.9); plant(g, -10.9, -R.d / 2 + 0.9); plant(g, 10.9, -R.d / 2 + 0.9);
-  stops.push({ label: "Reception", c: new THREE.Vector3(-7, 2.3, -R.d / 2), n: new THREE.Vector3(0, 0, 1), w: 5.2, h: 3.9 });
-
-  /* timeline e lavagna dell'architettura, sulla stessa parete: si scorre di lato */
-  const zb = -R.d / 2 + 0.06;
-  wallPanel(g, 3.6, 3.6, 0, 2.2, zb, 0, (c, W_, H) => {
-    c.fillStyle = "#ffffff"; c.fillRect(0, 0, W_, H); c.fillStyle = brand; c.fillRect(0, 0, W_, 140);
-    c.fillStyle = "#ffffff"; c.font = `600 44px ${FM}`; c.fillText("TIMELINE", 70, 88);
-    let y = 250; const ms = I.milestones || [];
-    c.fillStyle = "#d9d6cf"; c.fillRect(96, 250, 6, Math.max(0, ms.length - 1) * 200);
-    ms.forEach(m => {
-      c.fillStyle = brand; c.beginPath(); c.arc(99, y, 26, 0, 7); c.fill();
-      c.fillStyle = "#6b6f76"; c.font = `600 44px ${FM}`; c.fillText(fmtDate(m.date), 160, y + 15);
-      c.fillStyle = "#1e2024"; c.font = `800 66px ${FD}`; y = wrapText(c, m.title, 160, y + 98, W_ - 230, 76) + 56;
-    });
-    if (I.commits) {
-      c.fillStyle = "#ebe8e1"; c.fillRect(70, H - 250, W_ - 140, 4);
-      c.fillStyle = "#1e2024"; c.font = `900 120px ${FD}`; c.fillText(fmtNum(I.commits), 70, H - 90);
-      const w = c.measureText(fmtNum(I.commits)).width; c.fillStyle = "#6b6f76"; c.font = `600 36px ${FM}`; c.fillText("COMMIT", 100 + w, H - 100);
-      if (S) c.fillText(S.ago.toUpperCase(), 100 + w, H - 148);
+  let X = 0;
+  /* ---- 1. ingresso: il nome in lettere giganti, un portale di luce ---- */
+  {
+    const x = X, grp = new THREE.Group(); grp.position.x = x; g.add(grp);
+    const word = p.title.toUpperCase(), ok = [...word].every(ch => FONT.data.glyphs[ch]), tw = phone ? 6.4 : 10.5;
+    const faceM = new THREE.MeshStandardMaterial({ color: "#f4f2ee", metalness: 0.65, roughness: 0.22, emissive: "#ffffff", emissiveIntensity: 0.08 });
+    const sideM = new THREE.MeshStandardMaterial({ color: acc, metalness: 0.4, roughness: 0.35, emissive: acc, emissiveIntensity: 0.55 });
+    let top = 4.2, letters = [];
+    if (ok) {
+      const T0 = titleLetters(word, 1, faceM, sideM), size = Math.min(2.1, tw / T0.width);
+      const T = titleLetters(word, size, faceM, sideM); const LB = phone ? 2.85 : 2.45; T.g.position.set(0, LB, 0); grp.add(T.g); letters = T.letters; top = LB + size * 1.05;
     }
-  });
-  box(3.8, 3.8, 0.08, white, g, 7, 0.3, -R.d / 2 + 0.04);
-  wallPanel(g, 3.6, 3.6, 7, 2.2, zb + 0.06, 0, (c, W_, H) => {
-    c.fillStyle = "#fdfdfb"; c.fillRect(0, 0, W_, H);
-    c.fillStyle = "#1e2024"; c.font = `600 44px ${FM}`; c.fillText("ARCHITETTURA", 70, 110);
-    const L = I.arch || [], top = 190, rowH = (H - top - 60) / Math.max(1, L.length);
-    L.forEach((ly, i) => {
-      const y = top + i * rowH;
-      c.fillStyle = "#6b6f76"; c.font = `600 36px ${FM}`; c.fillText(ly.name.toUpperCase(), 70, y + rowH * 0.42);
-      let x = 330; c.font = `700 50px ${FD}`;
-      ly.items.forEach(it => { const w = c.measureText(it).width + 56; if (x + w > W_ - 60) return; c.strokeStyle = brand; c.lineWidth = 6; rrPath(c, x, y + rowH * 0.42 - 52, w, 80, 16); c.stroke(); c.fillStyle = "#1e2024"; c.fillText(it, x + 28, y + rowH * 0.42 + 2); x += w + 22; });
-      if (i < L.length - 1) { const ax = 380, ay0 = y + rowH * 0.42 + 40, ay1 = y + rowH + rowH * 0.42 - 64; c.strokeStyle = "#9a9ea6"; c.lineWidth = 5; c.beginPath(); c.moveTo(ax, ay0); c.lineTo(ax, ay1); c.moveTo(ax - 14, ay1 - 16); c.lineTo(ax, ay1); c.lineTo(ax + 14, ay1 - 16); c.stroke(); }
+    const fz = phone ? 1.55 : 1, tp = textPlane(grp, phone ? 6.4 : 9, phone ? 2.6 : 1.9, (c, W_, H) => {
+      c.textAlign = "center"; c.fillStyle = accS; c.font = `600 ${40 * fz}px ${FM}`; c.fillText(`${p.tag} · ${p.role}${S ? " · dal " + S.date : ""}`.toUpperCase(), W_ / 2, 52 * fz);
+      c.fillStyle = "#f4f2ee"; c.font = `600 ${62 * fz}px ${FD}`;
+      let line = "", y = 140 * fz; const lines = [];
+      String(p.text).split(" ").forEach(w => { const t = line ? line + " " + w : w; if (c.measureText(t).width > W_ - 40 && line) { lines.push(line); line = w; } else line = t; }); if (line) lines.push(line);
+      lines.forEach(l => { c.fillText(l, W_ / 2, y); y += 74 * fz; });
     });
-  });
-  stops.push({ label: "Timeline", c: new THREE.Vector3(0, 2.2, -R.d / 2), n: new THREE.Vector3(0, 0, 1), w: 4, h: 4 });
-  stops.push({ label: "Architettura", c: new THREE.Vector3(7, 2.2, -R.d / 2), n: new THREE.Vector3(0, 0, 1), w: 4, h: 4 });
-  return { g, stops };
+    tp.position.set(0, 1.2, 1.1);
+    if (!ok) textPlane(grp, tw, 2, (c, W_, H) => { c.textAlign = "center"; c.fillStyle = "#ffffff"; c.font = `900 ${H * 0.8}px ${FD}`; c.fillText(p.title, W_ / 2, H * 0.82); }).position.set(0, 3.4, 0);
+    /* portale: due archi che girano in senso opposto dietro al nome */
+    const RR = phone ? 3.6 : 5.2, arcs = [0, 1].map(i => { const m = new THREE.Mesh(new THREE.TorusGeometry(RR + i * 0.35, 0.035, 8, 160, Math.PI * (1.25 + i * 0.3)), addMat(acc, 0.95 - i * 0.35)); m.position.set(0, top * 0.55, -2.6 - i * 0.4); grp.add(m); return m; });
+    const halo = glow(grp, acc, RR * 3.4, 0, top * 0.55, -3.4, 0.55);
+    /* cono di luce dall'alto */
+    const [cc, cg] = cnv(4, 128), gr = cg.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(1, "rgba(255,255,255,.55)"); cg.fillStyle = gr; cg.fillRect(0, 0, 4, 128);
+    const ct = canvasTex(cc); ct.wrapS = ct.wrapT = THREE.ClampToEdgeWrapping;
+    const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.4, RR * 1.05, 12, 48, 1, true), new THREE.MeshBasicMaterial({ map: ct, color: acc.clone().lerp(new THREE.Color("#ffffff"), 0.6), transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false }));
+    cone.position.set(0, 6, -0.4); grp.add(cone);
+    const pl = new THREE.PointLight(acc, 2.2, 16, 2); pl.position.set(0, 2.2, -1.8); grp.add(pl);
+    const pf = new THREE.PointLight("#ffffff", 0.8, 14, 2); pf.position.set(0, 5.5, 5); grp.add(pf);
+    ex.push({ key: "intro", label: "Ingresso", frames: [{ c: new THREE.Vector3(x, top * 0.5, 0), w: (phone ? 6.6 : tw + 1.4), h: top + 0.4, el: 0.1 }],
+      update(rev, t, enterK) {
+        letters.forEach((m, i) => { const k = smooth((1 - enterK) * 1.6 - i * 0.07); m.position.y = -2.6 * (1 - k); m.rotation.x = (1 - k) * 0.9; });
+        arcs[0].rotation.z = t * 0.12; arcs[1].rotation.z = -t * 0.08 + 1.2; halo.material.opacity = 0.45 + 0.1 * Math.sin(t * 1.3);
+        tp.material.opacity = smooth((1 - enterK) * 1.5 - 0.5) * (0.25 + 0.75 * rev);
+      } });
+    X += SP;
+  }
+
+  /* ---- 2. commit: una nebulosa di cubi, uno per ogni commit ---- */
+  if (I.commits) {
+    const x = X, N = Math.min(phone ? 3000 : 6000, I.commits), R = 0.15 * Math.cbrt(I.commits), cy = 2.2 + R, grp = new THREE.Group(); grp.position.set(x, 0, 0); g.add(grp);
+    const neb = new THREE.Group(); neb.position.y = cy; neb.rotation.x = 0.32; grp.add(neb);
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.07, 0.07), new THREE.MeshBasicMaterial({ toneMapped: false }), N); neb.add(im);
+    const from = new Float32Array(N * 3), to = new Float32Array(N * 3), del = new Float32Array(N), col = new THREE.Color(), white = new THREE.Color("#ffffff"), v3 = new THREE.Vector3();
+    for (let i = 0; i < N; i++) {
+      if (i < N * 0.2) { const a = Math.random() * Math.PI * 2, r = R * (1.45 + Math.random() * 0.35); to.set([Math.cos(a) * r, (Math.random() - 0.5) * 0.12, Math.sin(a) * r], i * 3); }
+      else { v3.randomDirection ? v3.randomDirection() : v3.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(); v3.multiplyScalar(R * Math.pow(Math.random(), 0.45)); to.set([v3.x, v3.y, v3.z], i * 3); }
+      from.set([(Math.random() - 0.5) * 22, (Math.random() - 0.3) * 10 - cy + 3, -14 + Math.random() * 16], i * 3); del[i] = Math.random();
+      im.setColorAt(i, col.copy(acc).lerp(white, Math.random() < 0.25 ? 0.85 : Math.random() * 0.35));
+    }
+    const dm = new THREE.Object3D(); let lastRev = -1;
+    const core = glow(neb, acc, R * 4.2, 0, 0, 0, 0.5), pl = new THREE.PointLight(acc, 2, 14, 2); pl.position.set(0, cy, 2); grp.add(pl);
+    let shown = -1, val = 0;
+    const counter = textPlane(grp, 7, 1.35, (c, W_, H) => {
+      c.textAlign = "center"; c.fillStyle = "#ffffff"; c.font = `900 190px ${FD}`; c.fillText(fmtNum(val), W_ / 2, 178);
+      c.fillStyle = accS; c.font = `600 40px ${FM}`; c.fillText(`COMMIT${S ? " · " + S.ago.toUpperCase() : ""} · UN CUBO PER COMMIT`, W_ / 2, 290);
+    });
+    counter.position.set(0, 0.95, R * 0.6 + 0.6);
+    ex.push({ key: "commits", label: "Commit", frames: [{ c: new THREE.Vector3(x, (cy + R * 0.9) / 2 + 0.4, 0), w: Math.max(phone ? 4.6 : 7.4, R * 3.6), h: cy + R * 1.1 + 0.4, el: 0.08 }],
+      update(rev, t) {
+        neb.rotation.y = t * 0.08;
+        if (Math.abs(rev - lastRev) > 0.0005) {
+          lastRev = rev;
+          for (let i = 0; i < N; i++) { const k = smooth((rev - del[i] * 0.4) / 0.6), j = i * 3; dm.position.set(from[j] + (to[j] - from[j]) * k, from[j + 1] + (to[j + 1] - from[j + 1]) * k, from[j + 2] + (to[j + 2] - from[j + 2]) * k); dm.rotation.set(del[i] * 9 + k * 2, del[i] * 5, 0); dm.updateMatrix(); im.setMatrixAt(i, dm.matrix); }
+          im.instanceMatrix.needsUpdate = true;
+          const nv = Math.round(I.commits * smooth((rev - 0.2) / 0.8)); if (nv !== shown) { shown = val = nv; counter.userData.run(); }
+        }
+        core.material.opacity = 0.5 * rev;
+      } });
+    X += SP;
+  }
+
+  /* ---- 3. timeline: monoliti di vetro che emergono dal pavimento ---- */
+  const ms = I.milestones || [];
+  if (ms.length) {
+    const gap = 3.4, x0 = X + (ms.length - 1) * gap / 2, grp = new THREE.Group(), mons = []; grp.position.x = X; g.add(grp);
+    const line = new THREE.Mesh(new THREE.PlaneGeometry((ms.length - 1) * gap + 2, 0.06), addMat(acc, 0.9)); line.rotation.x = -Math.PI / 2; line.position.set((ms.length - 1) * gap / 2, 0.012, 1); grp.add(line);
+    ms.forEach((m, j) => {
+      const mg = new THREE.Group(); mg.position.set(j * gap, 0, 0); grp.add(mg);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(2.7, 3.5, 0.1).translate(0, 1.75, 0), new THREE.MeshStandardMaterial({ color: "#ffffff", metalness: 0.2, roughness: 0.05, transparent: true, opacity: 0.08, depthWrite: false }));
+      const edge = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ color: acc, transparent: true, opacity: 0.85, toneMapped: false }));
+      const txt = textPlane(mg, 2.5, 3.3, (c, W_, H) => {
+        c.fillStyle = accS; c.font = `600 50px ${FM}`; c.fillText(fmtDate(m.date), 40, 90);
+        c.fillStyle = "rgba(255,255,255,.18)"; c.fillRect(40, 128, W_ - 80, 3);
+        c.fillStyle = "#ffffff"; c.font = `800 88px ${FD}`; wrapText(c, m.title, 40, 250, W_ - 80, 96);
+        c.fillStyle = "rgba(255,255,255,.4)"; c.font = `600 34px ${FM}`; c.fillText(String(j + 1).padStart(2, "0") + " / " + String(ms.length).padStart(2, "0"), 40, H - 50);
+      });
+      txt.position.set(0, 1.75, 0.07); mg.add(glass, edge);
+      const node = glow(mg, acc, 1.4, 0, 0.05, 1, 0.9);
+      mons.push({ mg, glass, edge, txt, node });
+    });
+    const frames = phone ? ms.map((m, j) => ({ c: new THREE.Vector3(X + j * gap, 1.9, 0), w: 3.3, h: 4.2, el: 0.08 })) : [{ c: new THREE.Vector3(x0, 1.9, 0), w: (ms.length - 1) * gap + 3.4, h: 4.2, el: 0.08 }];
+    ex.push({ key: "timeline", label: "Timeline", frames, sub: phone ? ms.map(m => fmtDate(m.date)) : null,
+      update(rev, t) {
+        mons.forEach((o, j) => {
+          const k = smooth(rev * 1.6 - j * 0.6 / Math.max(1, ms.length - 1));
+          o.mg.position.y = -3.6 * (1 - k); o.mg.rotation.y = (1 - k) * 0.6;
+          o.txt.material.opacity = k; o.edge.material.opacity = 0.85 * k; o.node.material.opacity = 0.9 * k;
+          o.mg.position.z = Math.sin(t * 0.6 + j) * 0.05;
+        });
+      } });
+    X += (ms.length - 1) * gap + SP;
+  }
+
+  /* ---- 4. architettura: i livelli dello stack, esplosi nello spazio, con i dati che scorrono ---- */
+  const AL = I.arch || [];
+  if (AL.length) {
+    const x = X, grp = new THREE.Group(); grp.position.x = x; g.add(grp);
+    const stack = new THREE.Group(); grp.add(stack);
+    const SW = phone ? 5.2 : 6.6, layers = AL.map((ly, i) => {
+      const lg = new THREE.Group(); stack.add(lg);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(SW, 0.04, 2.6), addMat(acc, 0.1)); lg.add(slab);
+      lg.add(new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry), new THREE.LineBasicMaterial({ color: acc, transparent: true, opacity: 0.9, toneMapped: false })));
+      const n = ly.items.length, sp = Math.min(phone ? 1.7 : 2.1, (SW - 0.8) / Math.max(1, n - 1)), nodes = [];
+      ly.items.forEach((it, j) => {
+        const nx = (j - (n - 1) / 2) * sp;
+        const cube = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3).translate(0, 0.17, 0), new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: acc, emissiveIntensity: 0.7, roughness: 0.3 }));
+        cube.position.set(nx, 0, 0.2); lg.add(cube); glow(lg, acc, 1.1, nx, 0.2, 0.2, 0.6);
+        const lb = textPlane(lg, sp * 0.96, 0.36, (c, W_, H) => { c.textAlign = "center"; c.fillStyle = "#ffffff"; let fs = Math.round(H * 0.62); c.font = `700 ${fs}px ${FD}`; fs = Math.floor(fs * Math.min(1, (W_ - 10) / c.measureText(it).width)); c.font = `700 ${fs}px ${FD}`; c.fillText(it, W_ / 2, H * 0.74); });
+        lb.position.set(nx, 0.62, 0.2); nodes.push(new THREE.Vector3(nx, 0.17, 0.2));
+      });
+      const name = textPlane(lg, 2.2, 0.36, (c, W_, H) => { c.textAlign = phone ? "left" : "right"; c.fillStyle = accS; c.font = `600 ${Math.round(H * 0.5)}px ${FM}`; c.fillText(ly.name.toUpperCase(), phone ? 8 : W_ - 8, H * 0.7); });
+      if (phone) name.position.set(-SW / 2 + 1.1, -0.26, 1.3); else name.position.set(-SW / 2 - 1.25, 0.2, 1.1);
+      return { lg, nodes };
+    });
+    /* flussi fra i livelli: linee e impulsi di luce che scendono */
+    const flows = [];
+    for (let i = 0; i < layers.length - 1; i++) layers[i].nodes.forEach((a, j) => {
+      const nb = layers[i + 1].nodes, b = nb[Math.round(j * (nb.length - 1) / Math.max(1, layers[i].nodes.length - 1))];
+      const lgeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), ln = new THREE.Line(lgeo, new THREE.LineBasicMaterial({ color: acc, transparent: true, opacity: 0.35, toneMapped: false }));
+      stack.add(ln); flows.push({ i, a, b, ln, dot: glow(stack, "#ffffff", 0.35, 0, 0, 0, 0.9), ph: Math.random() });
+    });
+    const pl = new THREE.PointLight(acc, 2, 16, 2); pl.position.set(0, 4, 3); grp.add(pl);
+    const hMax = 0.4 + (AL.length - 1) * 1.45 + 0.9;
+    ex.push({ key: "arch", label: "Architettura", frames: [{ c: new THREE.Vector3(x - (phone ? 0 : 0.6), hMax / 2 + 0.2, 0), w: phone ? SW + 0.4 : SW + 3, h: hMax + 0.6, el: 0.3 }],
+      update(rev, t) {
+        const gp = 0.3 + 1.15 * smooth(rev), top = 0.4 + (AL.length - 1) * gp;
+        layers.forEach((L_, i) => { L_.lg.position.y = top - i * gp + Math.sin(t * 0.9 + i) * 0.03; });
+        stack.rotation.y = Math.sin(t * 0.25) * 0.1;
+        flows.forEach(f => {
+          const A = f.a.clone().add(layers[f.i].lg.position), B = f.b.clone().add(layers[f.i + 1].lg.position);
+          f.ln.geometry.attributes.position.setXYZ(0, A.x, A.y, A.z); f.ln.geometry.attributes.position.setXYZ(1, B.x, B.y, B.z); f.ln.geometry.attributes.position.needsUpdate = true;
+          const k = (t * 0.45 + f.ph) % 1; f.dot.position.copy(A).lerp(B, k); f.dot.material.opacity = 0.9 * Math.sin(k * Math.PI) * smooth(rev);
+          f.ln.material.opacity = 0.35 * smooth(rev);
+        });
+      } });
+    X += SP;
+  }
+  iScene.add(g); g.visible = false;
+  return { g, ex, bg, acc, anims };
 }
 
-/* camera dentro: ogni parete inquadrata per intero, su desktop come su telefono */
-function stopCam(st) {
-  const asp = innerWidth / innerHeight, fov = asp < 1 ? 52 : 45, vf = fov * Math.PI / 360, hf = Math.atan(Math.tan(vf) * asp);
-  const d = Math.max(st.h / 2 / Math.tan(vf), st.w / 2 / Math.tan(hf)) * (asp < 1 ? 1.02 : 1.3);
-  const dm = Math.max(...INS.stops.map(o => Math.max(o.h / 2 / Math.tan(vf), o.w / 2 / Math.tan(hf)))) * (asp < 1 ? 1.02 : 1.3);
-  const eye = st.c.clone().addScaledVector(st.n, Math.max(d, dm)); eye.y = st.c.y + (1.7 - st.c.y) * 0.5;
-  eye.x = Math.max(-ROOM.w / 2 + 0.6, Math.min(ROOM.w / 2 - 0.6, eye.x)); eye.z = Math.max(-ROOM.d / 2 + 0.6, Math.min(ROOM.d / 2 - 0.6, eye.z));
-  return { eye, look: st.c, fov };
+/* tappe dentro: le inquadrature dei pezzi esposti, adattate allo schermo */
+function insideStops(room) {
+  const out = []; room.ex.forEach((e, ei) => e.frames.forEach((f, fi) => out.push({ ...f, ex: ei, label: e.sub ? `${e.label} · ${e.sub[fi]}` : e.label }))); return out;
 }
-let INS = null, busy = false;
+function stopCam(st) {
+  const asp = innerWidth / innerHeight, fov = asp < 1 ? 50 : 38, vf = fov * Math.PI / 360, hf = Math.atan(Math.tan(vf) * asp);
+  const d = Math.max(st.h / 2 / Math.tan(vf), st.w / 2 / Math.tan(hf)) * (asp < 1 ? 1.12 : 1.42);
+  /* il contenuto sale un po': in basso c'è la barra di navigazione */
+  const look = st.c.clone(); look.y -= st.h * (asp < 1 ? 0.1 : 0.06);
+  const eye = look.clone().add(new THREE.Vector3(0, Math.sin(st.el) * d, Math.cos(st.el) * d));
+  return { eye, look, fov };
+}
+let INS = null, busy = false, snapT = 0;
 const _up = new THREE.Vector3(0, 1, 0);
 function insideFrame(now) {
-  const k = INS.t0 == null ? 1 : Math.min(1, (now - INS.t0) / 1100), ek = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-  INS.pos = INS.from + (INS.goal - INS.from) * ek;
-  const i = Math.max(0, Math.min(INS.stops.length - 1, Math.floor(INS.pos))), f = INS.pos - i, A = stopCam(INS.stops[i]), B = stopCam(INS.stops[Math.min(INS.stops.length - 1, i + 1)]);
-  const eye = A.eye.clone().lerp(B.eye, f), look = A.look.clone().lerp(B.look, f), dir = look.clone().sub(eye);
-  eye.addScaledVector(dir, -0.35 * INS.enterK);
+  const dt = Math.min(0.05, (now - (INS.last || now)) / 1000), t = now / 1000; INS.last = now;
+  const n = INS.stops.length;
+  INS.pos = reduced ? INS.goal : INS.pos + (INS.goal - INS.pos) * (1 - Math.exp(-dt * 3.4));
+  const i = Math.max(0, Math.min(n - 1, Math.floor(INS.pos))), f = Math.max(0, INS.pos - i), A = stopCam(INS.stops[i]), B = stopCam(INS.stops[Math.min(n - 1, i + 1)]);
+  const eye = A.eye.clone().lerp(B.eye, f), look = A.look.clone().lerp(B.look, f), arc = Math.sin(f * Math.PI);
+  eye.z += arc * 3.5; eye.y += arc * 0.9;
+  if (!reduced) { eye.x += Math.sin(t * 0.23) * 0.18; eye.y += Math.sin(t * 0.31) * 0.08; }
+  const dir = look.clone().sub(eye);
+  eye.addScaledVector(dir, -0.6 * INS.enterK); eye.y += 3 * INS.enterK;
   dir.applyAxisAngle(_up, cam.look.az); dir.y += cam.look.el * dir.length();
-  camera.clearViewOffset(); camera.aspect = innerWidth / innerHeight; camera.fov = A.fov; camera.near = 0.1; camera.far = 120; camera.updateProjectionMatrix();
+  camera.clearViewOffset(); camera.aspect = innerWidth / innerHeight; camera.fov = A.fov + (B.fov - A.fov) * f; camera.near = 0.1; camera.far = 120; camera.updateProjectionMatrix();
   camera.position.copy(eye); camera.lookAt(eye.clone().add(dir));
+  /* ogni pezzo si anima quando ci si avvicina */
+  const R = INS.room;
+  R.ex.forEach((e, ei) => {
+    const idx = INS.stops.map((s, k) => s.ex === ei ? k : -1).filter(k => k >= 0), s0 = idx[0], s1 = idx[idx.length - 1];
+    const dist = Math.max(0, s0 - INS.pos, INS.pos - s1), rev = reduced ? (dist < 0.5 ? 1 : 0) : smooth(1 - dist * 1.15);
+    e.update(rev, t, INS.enterK);
+  });
+  if (!reduced) R.anims.forEach(fn => fn(t, dt));
   iScene.environment = scene.environment;
-  const ex = renderer.toneMappingExposure; renderer.toneMappingExposure = 0.72; renderer.render(iScene, camera); renderer.toneMappingExposure = ex;
+  const ex = renderer.toneMappingExposure; renderer.toneMappingExposure = 1; renderer.render(iScene, camera); renderer.toneMappingExposure = ex;
+  const near = Math.round(INS.pos); if (near !== INS.hud && Math.abs(INS.pos - near) < 0.25) { INS.hud = near; renderInside(); }
 }
 function goIn(i) {
-  if (!INS) return; i = Math.max(0, Math.min(INS.stops.length - 1, i)); if (i === INS.goal) return;
-  INS.from = INS.pos; INS.goal = i; INS.t0 = performance.now(); cam.lookG.az = cam.lookG.el = 0; renderInside();
+  if (!INS) return; INS.goal = Math.max(0, Math.min(INS.stops.length - 1, Math.round(i))); cam.lookG.az = cam.lookG.el = 0;
+}
+/* rotella e trackpad: si scorre di lato in continuo, poi si aggancia alla tappa più vicina */
+function scrubIn(d) {
+  const now = performance.now(); if (!INS || now < INS.lock) return;
+  if (INS.base == null) INS.base = Math.round(INS.goal);
+  INS.goal = Math.max(-0.15, Math.min(INS.stops.length - 0.85, INS.goal + d));
+  clearTimeout(snapT); snapT = setTimeout(() => {
+    if (!INS) return; const m = INS.goal - INS.base;
+    goIn(Math.abs(m) < 0.1 ? INS.base : INS.base + Math.sign(m) * Math.max(1, Math.round(Math.abs(m))));
+    INS.base = null; INS.lock = performance.now() + 500;
+  }, 160);
 }
 const fadeEl = document.getElementById("fade");
 const tween = (ms, fn) => new Promise(res => { const t0 = performance.now(); const f = now => { const k = Math.min(1, (now - t0) / ms); fn(k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2); if (k < 1) requestAnimationFrame(f); else res(); }; requestAnimationFrame(f); });
@@ -1696,9 +1876,11 @@ async function enter(id) {
   await tween(reduced ? 1 : 750, k => { cam.push = k; fadeEl.style.opacity = k; });
   const p = DATA.projects.find(q => q.id === id); if (!ROOMS[id]) ROOMS[id] = buildRoom(p);
   Object.entries(ROOMS).forEach(([k, r]) => r.g.visible = k === id);
-  INS = { id, proj: p, stops: ROOMS[id].stops, from: 0, goal: 0, pos: 0, t0: null, enterK: 1 }; cam.lookG.az = cam.lookG.el = cam.look.az = cam.look.el = 0;
+  const room = ROOMS[id]; iScene.background = room.bg; iScene.fog = new THREE.Fog(room.bg, 16, 44);
+  INS = { id, proj: p, room, stops: insideStops(room), goal: 0, pos: 0, enterK: 1, hud: -1 }; cam.lookG.az = cam.lookG.el = cam.look.az = cam.look.el = 0;
   document.body.classList.add("inside"); renderInside();
-  await tween(reduced ? 1 : 900, k => { fadeEl.style.opacity = 1 - k; INS.enterK = 1 - k; });
+  tween(reduced ? 1 : 500, k => { fadeEl.style.opacity = 1 - k; });
+  await tween(reduced ? 1 : 2200, k => { INS.enterK = 1 - k; });
   busy = false;
 }
 async function leave() {
@@ -1711,17 +1893,18 @@ async function leave() {
 }
 function renderInside() {
   const el = document.getElementById("inside"); if (!INS) { el.hidden = true; el.innerHTML = ""; return; }
-  const d = INS.proj, n = INS.stops.length, st = INS.stops[INS.goal];
+  const d = INS.proj, n = INS.stops.length, cur = Math.max(0, Math.min(n - 1, Math.round(INS.goal))), st = INS.stops[cur];
   el.innerHTML = `<div class="cap"><button class="cta ghost" id="in-exit" title="Torna in strada">← Esci</button>
-    <div class="who"><span class="eyebrow">${esc(d.title)} · ${INS.goal + 1}/${n}</span><b>${esc(st.label)}</b></div>
-    <div class="acts"><button class="cta ghost" id="in-prev" aria-label="Parete precedente" ${INS.goal === 0 ? "disabled" : ""}>‹</button>
-      <button class="cta ghost" id="in-next" aria-label="Parete successiva" ${INS.goal === n - 1 ? "disabled" : ""}>›</button>
+    <div class="who"><span class="eyebrow">${esc(d.title)} · ${cur + 1}/${n}</span><b>${esc(st.label)}</b></div>
+    <div class="acts"><button class="cta ghost" id="in-prev" aria-label="Tappa precedente" ${cur === 0 ? "disabled" : ""}>‹</button>
+      <button class="cta ghost" id="in-next" aria-label="Tappa successiva" ${cur === n - 1 ? "disabled" : ""}>›</button>
       ${d.url ? `<a class="cta" href="${esc(d.url)}" target="_blank" rel="noopener">Sito ↗</a>` : ""}</div></div>`;
   el.hidden = false;
   el.querySelector("#in-exit").onclick = leave;
-  el.querySelector("#in-prev").onclick = () => goIn(INS.goal - 1);
-  el.querySelector("#in-next").onclick = () => goIn(INS.goal + 1);
+  el.querySelector("#in-prev").onclick = () => goIn(cur - 1);
+  el.querySelector("#in-next").onclick = () => goIn(cur + 1);
 }
+addEventListener("resize", () => { if (INS) { INS.stops = insideStops(INS.room); INS.goal = Math.min(INS.goal, INS.stops.length - 1); } });
 
 /* ---------- loop ---------- */
 const v = new THREE.Vector3(); let last = performance.now();
