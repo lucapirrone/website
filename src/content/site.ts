@@ -120,7 +120,7 @@ export const DATA = {
       archetype: "startup",
       title: "SmallTalk",
       tag: "Side project",
-      role: "Founder",
+      role: "Piattaforma tecnica",
       status: "active",
       weight: 2,
       since: "2026-10",
@@ -139,7 +139,7 @@ export const DATA = {
           { name: "Infra", items: ["QStash", "PostHog"] },
         ],
       },
-      text: "Piattaforma per istruttori di inglese: studenti, classi, task giornalieri su Telegram e analisi delle lezioni su Google Meet.",
+      text: "Piattaforma per istruttori di inglese, fondata da SirPaul: sua l'idea e il metodo di insegnamento, mia la piattaforma tecnica. Studenti, classi, task giornalieri su Telegram e analisi delle lezioni su Google Meet.",
     },
   ] satisfies Project[] as Project[],
   freeLots: [
