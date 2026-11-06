@@ -1224,7 +1224,7 @@ function boardTex(p, i, B) {
     g.textAlign = "right"; g.fillText(`N. ${String(i + 1).padStart(2, "0")}`, CW - 80, 78);
     g.textAlign = "left"; g.fillStyle = "#1e2024"; g.font = `900 190px ${D}`; g.fillText(p.title.toUpperCase(), 80, 290);
     g.fillStyle = "#6b6f76"; g.font = `500 54px ${M}`; g.fillText(`${p.tag} · ${p.role}`.toUpperCase(), 80, 420);
-    const rows = [["INIZIO LAVORI", S ? `${S.date}` : "—", S ? S.ago : ""], ["STATO", STATUS[p.status], ""], ["GITHUB", ghText(p), ""]];
+    const rows = [["INIZIO LAVORI", S ? `${S.date}` : "—", S ? S.ago : ""], ["STATO", STATUS[p.status], ""], p.url ? ["SITO", p.url.replace(/^https?:\/\//, "") + " ↗", ""] : ["GITHUB", ghText(p), ""]];
     let y = 520;
     rows.forEach(([k, v, sub]) => {
       g.fillStyle = "#d9d6cf"; g.fillRect(80, y, CW - 160, 4);
@@ -1248,7 +1248,7 @@ function boardTex(p, i, B) {
     /* in fondo: su telefono i pulsanti del progetto (il riquadro in basso lì non c'è), altrimenti la descrizione */
     const by = 1420, bh = 150; B.btns = [];
     if (B.cta) {
-      const acts = [{ k: "more", label: "Scheda completa", ghost: true }, { k: "enter", label: "Entra" }], gap = 28, bw = (CW - 160 - gap * (acts.length - 1)) / acts.length;
+      const acts = [{ k: "more", label: p.url ? "Scheda" : "Scheda completa", ghost: true }, ...(p.url ? [{ k: "site", label: "Sito ↗", ghost: true }] : []), { k: "enter", label: "Entra" }], gap = 28, bw = (CW - 160 - gap * (acts.length - 1)) / acts.length;
       acts.forEach((a, j) => {
         const x = 80 + j * (bw + gap); B.btns.push({ k: a.k, x, y: by, w: bw, h: bh });
         g.beginPath(); g.moveTo(x + 30, by); g.arcTo(x + bw, by, x + bw, by + bh, 30); g.arcTo(x + bw, by + bh, x, by + bh, 30); g.arcTo(x, by + bh, x, by, 30); g.arcTo(x, by, x + bw, by, 30);
@@ -1469,7 +1469,7 @@ function boardPress(x, y) {
   const id = h.object.userData.iid; if (id !== selected) return false;
   const cx = h.uv.x * 2048, cy = (1 - h.uv.y) * 1640, b = B.btns.find(b => cx >= b.x && cx <= b.x + b.w && cy >= b.y - 20 && cy <= b.y + b.h + 20); if (!b) return false;
   const d = W.items[id].data;
-  if (b.k === "enter") enter(id); else location.href = `/progetti/${id}`;
+  if (b.k === "enter") enter(id); else if (b.k === "site") open(d.url, "_blank", "noopener"); else location.href = `/progetti/${id}`;
   return true;
 }
 function pickAt(x, y) { const r = canvas.getBoundingClientRect(); ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects(W.pick, false)[0]; return h ? h.object.userData.iid : null; }
@@ -1540,6 +1540,7 @@ function renderCaption() {
   caption.innerHTML = `<div class="cap"><span class="dot ${free ? "free" : d.status}"></span>
     <div class="who"><span class="eyebrow">${free ? "Disponibile" : `${esc(d.tag)} · ${STATUS[d.status]}`}</span><b>${esc(d.title)}</b></div>
     <div class="acts">${!free ? `<button class="cta wide" id="cap-enter">Entra</button>` : ""}
+      ${!free && d.url ? `<a class="cta ghost" href="${esc(d.url)}" target="_blank" rel="noopener">Sito ↗</a>` : ""}
       <button class="cta ${free ? "" : "ghost "}wide" id="cap-more">${free ? "Proponi un progetto" : "Scheda completa"}</button>
       <button class="cta ghost" id="cap-next" aria-label="Prossimo edificio" title="Prossimo edificio">→</button>
       <button class="cta ghost" id="cap-close" aria-label="Chiudi" title="Chiudi">✕</button></div></div>`;

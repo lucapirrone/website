@@ -17,4 +17,12 @@ describe("content", () => {
     expect(existsSync(`public/logos/${p.id}-front.png`)).toBe(true);
     expect(BRAND[p.id]).toMatch(/^#[0-9a-f]{6}$/);
   });
+  it("SmallTalk credits SirPaul as founder, Luca built the platform", () => {
+    const p = DATA.projects.find((q) => q.id === "smalltalk")!;
+    expect(p.role).not.toMatch(/founder/i);
+    expect(p.text).toMatch(/SirPaul/);
+  });
+  it.each(DATA.projects.filter((p) => p.url))("$id public link is https", (p) => {
+    expect(p.url).toMatch(/^https:\/\/[^/]+/);
+  });
 });
